@@ -4,7 +4,9 @@ import (
 	"net"
 	"reflect"
 	"testing"
+	"time"
 
+	"sourcegraph.com/sqs/grpccache"
 	"sourcegraph.com/sqs/grpccache/testpb"
 
 	"golang.org/x/net/context"
@@ -68,6 +70,8 @@ func TestGRPCCache(t *testing.T) {
 		}
 	}
 
+	// Test caching (with no expiration)
+	ts.maxAge = 999 * time.Hour
 	testNotCached(&testpb.TestOp{A: 1})
 	testCached(&testpb.TestOp{A: 1})
 	testNotCached(&testpb.TestOp{A: 2})
@@ -76,13 +80,34 @@ func TestGRPCCache(t *testing.T) {
 	testCached(&testpb.TestOp{A: 2, B: []*testpb.T{{A: true}}})
 	testCached(&testpb.TestOp{A: 1})
 	testNotCached(&testpb.TestOp{A: 3})
+
+	// Test cache expiration
+	ts.maxAge = time.Millisecond * 250
+	testNotCached(&testpb.TestOp{A: 100})
+	testCached(&testpb.TestOp{A: 100})
+	testCached(&testpb.TestOp{A: 100})
+	testNotCached(&testpb.TestOp{A: 111})
+	time.Sleep(ts.maxAge)
+	testNotCached(&testpb.TestOp{A: 100})
+	testNotCached(&testpb.TestOp{A: 111})
+	testCached(&testpb.TestOp{A: 100})
+	testCached(&testpb.TestOp{A: 100})
 }
 
 type testServer struct {
 	calls []*testpb.TestOp
+
+	maxAge time.Duration
 }
 
 func (s *testServer) TestMethod(ctx context.Context, op *testpb.TestOp) (*testpb.TestResult, error) {
 	s.calls = append(s.calls, op)
+
+	// Set cache control.
+	expires := time.Now().Add(s.maxAge)
+	if err := grpccache.SetCacheControl(ctx, grpccache.CacheControl{Expires: expires}); err != nil {
+		return nil, err
+	}
+
 	return &testpb.TestResult{X: op.A}, nil
 }

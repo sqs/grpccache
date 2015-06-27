@@ -159,6 +159,7 @@ func (v genTypeList) imports() []string {
 	}
 
 	imps = append(imps, "google.golang.org/grpc")
+	imps = append(imps, "google.golang.org/grpc/metadata")
 	imps = append(imps, "golang.org/x/net/context")
 	imps = append(imps, "sourcegraph.com/sqs/grpccache")
 
@@ -220,11 +221,14 @@ if err != nil {
 if cached {
 	return &cachedResult, nil
 }
-result, err := s.` + genType.Name.Name + `.` + methField.Names[0].Name + `(ctx, in)
+
+var trailer metadata.MD
+
+result, err := s.` + genType.Name.Name + `.` + methField.Names[0].Name + `(ctx, in, grpc.Trailer(&trailer))
 if err != nil {
 	return nil, err
 }
-if err := s.Cache.Store(ctx, "` + key + `", in, result); err != nil {
+if err := s.Cache.Store(ctx, "` + key + `", in, result, trailer); err != nil {
 	return nil, err
 }
 return result, nil

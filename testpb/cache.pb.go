@@ -14,6 +14,7 @@ package testpb
 import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"sourcegraph.com/sqs/grpccache"
 )
 
@@ -31,11 +32,14 @@ func (s *CachedTestClient) TestMethod(ctx context.Context, in *TestOp, opts ...g
 	if cached {
 		return &cachedResult, nil
 	}
-	result, err := s.TestClient.TestMethod(ctx, in)
+
+	var trailer metadata.MD
+
+	result, err := s.TestClient.TestMethod(ctx, in, grpc.Trailer(&trailer))
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Cache.Store(ctx, "Test.TestMethod", in, result); err != nil {
+	if err := s.Cache.Store(ctx, "Test.TestMethod", in, result, trailer); err != nil {
 		return nil, err
 	}
 	return result, nil

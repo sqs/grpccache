@@ -4,14 +4,23 @@ import (
 	"crypto/sha256"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc/metadata"
 )
 
+type cacheEntry struct {
+	protoBytes []byte
+	CacheControl
+}
+
+// A Cache holds and allows retrieval of gRPC method call results that
+// a client has previously seen.
 type Cache struct {
 	mu      sync.RWMutex
-	results map[string][]byte // method "-" sha256 of arg proto -> result proto
+	results map[string]cacheEntry // method "-" sha256 of arg proto -> cache entry
 
 	Log bool
 }
@@ -25,6 +34,15 @@ func cacheKey(ctx context.Context, method string, arg proto.Message) (string, er
 	return method + "-" + string(sha[:]), nil
 }
 
+// Get retrieves a cached result for a gRPC method call (on the
+// client), if it exists in the cache. It is called from
+// CachedXyzClient auto-generated wrapper methods.
+//
+// The `method` and `arg` parameters are for the call that's in
+// progress. If a cached result is found (that has not expired), it is
+// written to the `result` parameter and (true, nil) is returned. If
+// there's no cached result (or it has expired), then (false, nil) is
+// returned. Otherwise a non-nil error is returned.
 func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, result proto.Message) (cached bool, err error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -34,31 +52,39 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 		return false, err
 	}
 
-	if data, present := c.results[cacheKey]; present {
-		if err := proto.Unmarshal(data, result); err != nil {
+	if entry, present := c.results[cacheKey]; present {
+		if time.Now().After(entry.CacheControl.Expires) {
+			log.Printf("Cache: EXPIRED %q %+v", method, arg)
+			// TODO(sqs): clear cache entry (must obtain write lock,
+			// etc.)
+			return false, nil
+		}
+		if err := proto.Unmarshal(entry.protoBytes, result); err != nil {
 			return false, err
 		}
 		if c.Log {
-			log.Printf("Cache: HIT   %q %+v", method, arg)
+			log.Printf("Cache: HIT     %q %+v: result %+v", method, arg, result)
 		}
 		return true, nil
 	}
 	if c.Log {
-		log.Printf("Cache: MISS  %q %+v", method, arg)
+		log.Printf("Cache: MISS    %q %+v", method, arg)
 	}
 	return false, nil
 }
 
-func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, result proto.Message) error {
+// Store records the result from a gRPC method call. It is called by
+// the CachedXyzClient auto-generated wrapper methods.
+func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, result proto.Message, trailer metadata.MD) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.results == nil {
-		c.results = map[string][]byte{}
+		c.results = map[string]cacheEntry{}
 	}
 
 	if c.Log {
-		log.Printf("Cache: STORE %q %+v", method, arg)
+		log.Printf("Cache: STORE   %q %+v: result %+v", method, arg, result)
 	}
 	data, err := proto.Marshal(result)
 	if err != nil {
@@ -70,6 +96,11 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		return err
 	}
 
-	c.results[cacheKey] = data
+	cc, err := getCacheControl(trailer)
+	if err != nil {
+		return err
+	}
+
+	c.results[cacheKey] = cacheEntry{protoBytes: data, CacheControl: *cc}
 	return nil
 }
