@@ -78,7 +78,7 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 			c.size -= uint64(len(entry.protoBytes))
 
 			if c.Log {
-				log.Printf("Cache: EXPIRED %q %+v (size %d)", method, arg, c.size)
+				log.Printf("Cache: EXPIRED %s %+v (size %d)", cacheKey, arg, c.size)
 			}
 			return false, nil
 		}
@@ -86,12 +86,12 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 			return false, err
 		}
 		if c.Log {
-			log.Printf("Cache: HIT     %q %+v: result %+v", method, arg, result)
+			log.Printf("Cache: HIT     %s %+v: result %+v", cacheKey, arg, result)
 		}
 		return true, nil
 	}
 	if c.Log {
-		log.Printf("Cache: MISS    %q %+v", method, arg)
+		log.Printf("Cache: MISS    %s %+v", cacheKey, arg)
 	}
 	return false, nil
 }
@@ -147,7 +147,7 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 	c.size = afterSize
 
 	if c.Log {
-		log.Printf("Cache: STORE   %q %+v: result %+v (size %d)", method, arg, result, c.size)
+		log.Printf("Cache: STORE   %s %+v: result %+v (size %d)", cacheKey, arg, result, c.size)
 	}
 	return nil
 }
