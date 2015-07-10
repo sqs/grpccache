@@ -61,9 +61,6 @@ func (m *TestResult) Reset()         { *m = TestResult{} }
 func (m *TestResult) String() string { return proto.CompactTextString(m) }
 func (*TestResult) ProtoMessage()    {}
 
-func init() {
-}
-
 // Client API for Test service
 
 type TestClient interface {
