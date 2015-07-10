@@ -44,9 +44,15 @@ func TestGRPCCache(t *testing.T) {
 		t.Errorf("got %d calls (%+v), want %d", len(ts.calls), ts.calls, want)
 	}
 
-	testNotCached := func(op *testpb.TestOp) {
+	noopCtxFunc := func(ctx context.Context) context.Context { return ctx }
+
+	testNotCached := func(op *testpb.TestOp, ctxFunc func(context.Context) context.Context) {
+		if ctxFunc == nil {
+			ctxFunc = noopCtxFunc
+		}
+
 		beforeNumCalls := len(ts.calls)
-		r, err := c.TestMethod(ctx, op)
+		r, err := c.TestMethod(ctxFunc(ctx), op)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,9 +64,13 @@ func TestGRPCCache(t *testing.T) {
 		}
 	}
 
-	testCached := func(op *testpb.TestOp) {
+	testCached := func(op *testpb.TestOp, ctxFunc func(context.Context) context.Context) {
+		if ctxFunc == nil {
+			ctxFunc = noopCtxFunc
+		}
+
 		beforeNumCalls := len(ts.calls)
-		r, err := c.TestMethod(ctx, op)
+		r, err := c.TestMethod(ctxFunc(ctx), op)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,48 +84,49 @@ func TestGRPCCache(t *testing.T) {
 
 	// Test caching (with no expiration)
 	ts.maxAge = 999 * time.Hour
-	testNotCached(&testpb.TestOp{A: 1})
-	testCached(&testpb.TestOp{A: 1})
-	testNotCached(&testpb.TestOp{A: 2})
-	testNotCached(&testpb.TestOp{A: 2, B: []*testpb.T{{A: true}}})
-	testCached(&testpb.TestOp{A: 2})
-	testCached(&testpb.TestOp{A: 2, B: []*testpb.T{{A: true}}})
-	testCached(&testpb.TestOp{A: 1})
-	testNotCached(&testpb.TestOp{A: 3})
+	testNotCached(&testpb.TestOp{A: 1}, nil)
+	testCached(&testpb.TestOp{A: 1}, nil)
+	testNotCached(&testpb.TestOp{A: 2}, nil)
+	testNotCached(&testpb.TestOp{A: 2, B: []*testpb.T{{A: true}}}, nil)
+	testCached(&testpb.TestOp{A: 2}, nil)
+	testCached(&testpb.TestOp{A: 2, B: []*testpb.T{{A: true}}}, nil)
+	testCached(&testpb.TestOp{A: 1}, nil)
+	testNotCached(&testpb.TestOp{A: 3}, nil)
 
 	// Test cache expiration
 	ts.maxAge = time.Millisecond * 250
-	testNotCached(&testpb.TestOp{A: 100})
-	testCached(&testpb.TestOp{A: 100})
-	testCached(&testpb.TestOp{A: 100})
-	testNotCached(&testpb.TestOp{A: 111})
+	testNotCached(&testpb.TestOp{A: 100}, nil)
+	testCached(&testpb.TestOp{A: 100}, nil)
+	testCached(&testpb.TestOp{A: 100}, nil)
+	testNotCached(&testpb.TestOp{A: 111}, nil)
 	time.Sleep(ts.maxAge)
-	testNotCached(&testpb.TestOp{A: 100})
-	testNotCached(&testpb.TestOp{A: 111})
-	testCached(&testpb.TestOp{A: 100})
-	testCached(&testpb.TestOp{A: 100})
+	testNotCached(&testpb.TestOp{A: 100}, nil)
+	testNotCached(&testpb.TestOp{A: 111}, nil)
+	testCached(&testpb.TestOp{A: 100}, nil)
+	testCached(&testpb.TestOp{A: 100}, nil)
 
 	c.Cache.Clear()
 
 	// Test cache max size
 	c.Cache.MaxSize = 8
-	testNotCached(&testpb.TestOp{A: 200})
-	testCached(&testpb.TestOp{A: 200})
-	testNotCached(&testpb.TestOp{A: 201})
-	testCached(&testpb.TestOp{A: 201})
-	testNotCached(&testpb.TestOp{A: 202}) // exceeds max size
-	testNotCached(&testpb.TestOp{A: 202})
+	testNotCached(&testpb.TestOp{A: 200}, nil)
+	testCached(&testpb.TestOp{A: 200}, nil)
+	testNotCached(&testpb.TestOp{A: 201}, nil)
+	testCached(&testpb.TestOp{A: 201}, nil)
+	testNotCached(&testpb.TestOp{A: 202}, nil) // exceeds max size
+	testNotCached(&testpb.TestOp{A: 202}, nil)
 	c.Cache.MaxSize = 0
-	testNotCached(&testpb.TestOp{A: 202})
-	testCached(&testpb.TestOp{A: 202})
+	testNotCached(&testpb.TestOp{A: 202}, nil)
+	testCached(&testpb.TestOp{A: 202}, nil)
 
 	// Test gzip above a certain length
 	c.Cache.MaxSize = 10000
 	orig := grpccache.MinByteGzip
 	grpccache.MinByteGzip = 1
-	testNotCached(&testpb.TestOp{A: 302})
-	testCached(&testpb.TestOp{A: 302})
+	testNotCached(&testpb.TestOp{A: 302}, nil)
+	testCached(&testpb.TestOp{A: 302}, nil)
 	grpccache.MinByteGzip = orig
+	c.Cache.MaxSize = 0
 
 	// Test KeyPart
 	kp := 0
@@ -123,8 +134,13 @@ func TestGRPCCache(t *testing.T) {
 		kp++
 		return strconv.Itoa(kp)
 	}
-	testNotCached(&testpb.TestOp{A: 400})
-	testNotCached(&testpb.TestOp{A: 400})
+	testNotCached(&testpb.TestOp{A: 400}, nil)
+	testNotCached(&testpb.TestOp{A: 400}, nil)
+	c.Cache.KeyPart = nil
+
+	// Test NoCache
+	testNotCached(&testpb.TestOp{A: 500}, grpccache.NoCache)
+	testNotCached(&testpb.TestOp{A: 500}, grpccache.NoCache)
 }
 
 type testServer struct {
