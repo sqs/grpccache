@@ -20,17 +20,19 @@ import (
 
 type CachedTestClient struct {
 	TestClient
-	Cache grpccache.Cache
+	Cache *grpccache.Cache
 }
 
 func (s *CachedTestClient) TestMethod(ctx context.Context, in *TestOp, opts ...grpc.CallOption) (*TestResult, error) {
-	var cachedResult TestResult
-	cached, err := s.Cache.Get(ctx, "Test.TestMethod", in, &cachedResult)
-	if err != nil {
-		return nil, err
-	}
-	if cached {
-		return &cachedResult, nil
+	if s.Cache != nil {
+		var cachedResult TestResult
+		cached, err := s.Cache.Get(ctx, "Test.TestMethod", in, &cachedResult)
+		if err != nil {
+			return nil, err
+		}
+		if cached {
+			return &cachedResult, nil
+		}
 	}
 
 	var trailer metadata.MD
@@ -39,8 +41,10 @@ func (s *CachedTestClient) TestMethod(ctx context.Context, in *TestOp, opts ...g
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Cache.Store(ctx, "Test.TestMethod", in, result, trailer); err != nil {
-		return nil, err
+	if s.Cache != nil {
+		if err := s.Cache.Store(ctx, "Test.TestMethod", in, result, trailer); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }

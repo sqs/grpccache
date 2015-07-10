@@ -199,7 +199,7 @@ func write(genTypes []genType, outPkg string) ([]byte, error) {
 
 	// Cached types
 	for _, genType := range genTypes {
-		fmt.Fprintf(&w, "type %s struct { %s; Cache grpccache.Cache }\n", genType.implName(), genType.Name.Name)
+		fmt.Fprintf(&w, "type %s struct { %s; Cache *grpccache.Cache }\n", genType.implName(), genType.Name.Name)
 		fmt.Fprintln(&w)
 
 		// Methods
@@ -213,13 +213,15 @@ func write(genTypes []genType, outPkg string) ([]byte, error) {
 
 				key := genType.name() + "." + methField.Names[0].Name
 				body := astParse(`
-var cachedResult ` + resultType(meth) + `
-cached, err := s.Cache.Get(ctx, "` + key + `", in, &cachedResult)
-if err != nil {
-	return nil, err
-}
-if cached {
-	return &cachedResult, nil
+if s.Cache != nil {
+	var cachedResult ` + resultType(meth) + `
+	cached, err := s.Cache.Get(ctx, "` + key + `", in, &cachedResult)
+	if err != nil {
+		return nil, err
+	}
+	if cached {
+		return &cachedResult, nil
+	}
 }
 
 var trailer metadata.MD
@@ -228,8 +230,10 @@ result, err := s.` + genType.Name.Name + `.` + methField.Names[0].Name + `(ctx, 
 if err != nil {
 	return nil, err
 }
-if err := s.Cache.Store(ctx, "` + key + `", in, result, trailer); err != nil {
-	return nil, err
+if s.Cache != nil {
+	if err := s.Cache.Store(ctx, "` + key + `", in, result, trailer); err != nil {
+		return nil, err
+	}
 }
 return result, nil
 `)

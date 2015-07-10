@@ -33,7 +33,7 @@ func TestGRPCCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &testpb.CachedTestClient{TestClient: testpb.NewTestClient(cc)}
+	c := &testpb.CachedTestClient{TestClient: testpb.NewTestClient(cc), Cache: &grpccache.Cache{}}
 	c.Cache.Log = true
 
 	ctx := context.Background()
