@@ -109,14 +109,22 @@ func TestGRPCCache(t *testing.T) {
 	testNotCached(&testpb.TestOp{A: 202})
 	testCached(&testpb.TestOp{A: 202})
 
+	// Test gzip above a certain length
+	c.Cache.MaxSize = 10000
+	orig := grpccache.MinByteGzip
+	grpccache.MinByteGzip = 1
+	testNotCached(&testpb.TestOp{A: 302})
+	testCached(&testpb.TestOp{A: 302})
+	grpccache.MinByteGzip = orig
+
 	// Test KeyPart
 	kp := 0
 	c.Cache.KeyPart = func(context.Context) string {
 		kp++
 		return strconv.Itoa(kp)
 	}
-	testNotCached(&testpb.TestOp{A: 200})
-	testNotCached(&testpb.TestOp{A: 200})
+	testNotCached(&testpb.TestOp{A: 400})
+	testNotCached(&testpb.TestOp{A: 400})
 }
 
 type testServer struct {

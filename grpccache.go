@@ -1,8 +1,12 @@
 package grpccache
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"sync"
 	"time"
@@ -78,20 +82,20 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 			c.size -= uint64(len(entry.protoBytes))
 
 			if c.Log {
-				log.Printf("Cache: EXPIRED %s %+v (size %d)", cacheKey, arg, c.size)
+				log.Printf("Cache: EXPIRED %s %s (size %d)", cacheKey, truncate(arg), c.size)
 			}
 			return false, nil
 		}
-		if err := proto.Unmarshal(entry.protoBytes, result); err != nil {
+		if err := codec.Unmarshal(entry.protoBytes, result); err != nil {
 			return false, err
 		}
 		if c.Log {
-			log.Printf("Cache: HIT     %s %+v: result %+v", cacheKey, arg, result)
+			log.Printf("Cache: HIT     %s %s: result %s", cacheKey, truncate(arg), truncate(result))
 		}
 		return true, nil
 	}
 	if c.Log {
-		log.Printf("Cache: MISS    %s %+v", cacheKey, arg)
+		log.Printf("Cache: MISS    %s %s", cacheKey, truncate(arg))
 	}
 	return false, nil
 }
@@ -106,7 +110,7 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		c.results = map[string]cacheEntry{}
 	}
 
-	data, err := proto.Marshal(result)
+	data, err := codec.Marshal(result)
 	if err != nil {
 		return err
 	}
@@ -147,9 +151,17 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 	c.size = afterSize
 
 	if c.Log {
-		log.Printf("Cache: STORE   %s %+v: result %+v (size %d)", cacheKey, arg, result, c.size)
+		log.Printf("Cache: STORE   %s %+v: result %s (size %d)", cacheKey, arg, truncate(result), c.size)
 	}
 	return nil
+}
+
+func truncate(v proto.Message) string {
+	s := fmt.Sprint(v)
+	if len(s) > 35 {
+		return s[:35] + "..."
+	}
+	return s
 }
 
 // Clear removes all items from the cache.
@@ -158,4 +170,54 @@ func (c *Cache) Clear() {
 	c.results = map[string]cacheEntry{}
 	c.size = 0
 	c.mu.Unlock()
+}
+
+var codec gzipProtoCodec
+
+type gzipProtoCodec struct{}
+
+var MinByteGzip = 1000
+
+func (gzipProtoCodec) Marshal(v proto.Message) ([]byte, error) {
+	data, err := proto.Marshal(v.(proto.Message))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < MinByteGzip {
+		return append(data, '0'), nil
+	}
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if _, err := w.Write(data); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return append(buf.Bytes(), '1'), nil
+}
+
+func (gzipProtoCodec) Unmarshal(data []byte, v interface{}) error {
+	data, isGzipped := data[:len(data)-1], data[len(data)-1]
+	if isGzipped == '1' {
+		r, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+		data, err = ioutil.ReadAll(r)
+		if err != nil {
+			return err
+		}
+	}
+	return proto.Unmarshal(data, v.(proto.Message))
+}
+
+type protoCodec struct{}
+
+func (protoCodec) Marshal(v proto.Message) ([]byte, error) {
+	return proto.Marshal(v.(proto.Message))
+}
+
+func (protoCodec) Unmarshal(data []byte, v interface{}) error {
+	return proto.Unmarshal(data, v.(proto.Message))
 }
