@@ -2,6 +2,7 @@ package grpccache
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"log"
 	"sync"
 	"time"
@@ -43,7 +44,7 @@ func (c *Cache) cacheKey(ctx context.Context, method string, arg proto.Message) 
 		return "", err
 	}
 	sha := sha256.Sum256(data)
-	s := method + "-" + string(sha[:])
+	s := method + "-" + base64.StdEncoding.EncodeToString(sha[:])
 
 	if c.KeyPart != nil {
 		s += "-" + c.KeyPart(ctx)
