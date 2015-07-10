@@ -1,8 +1,6 @@
 package grpccache
 
 import (
-	"fmt"
-	"strconv"
 	"time"
 
 	"golang.org/x/net/context"
@@ -14,10 +12,13 @@ import (
 // underlying server's method implementation to allow control over the
 // duration and nature of caching on a per-request basis.
 type CacheControl struct {
-	// TODO(sqs): use max-age and set expiration date based on
-	// client/server's own clock -- this impl is highly dependent on
-	// clock sync between client and server.
-	Expires time.Time
+	// MaxAge is maximum duration (since the original retrieval) that
+	// an item is considered fresh.
+	MaxAge time.Duration
+}
+
+func (cc *CacheControl) cacheable() bool {
+	return cc.MaxAge > 0
 }
 
 // SetCacheControl is called by gRPC server method implementations to
@@ -28,19 +29,22 @@ type CacheControl struct {
 // constraint imposed by gRPC; see the grpc.SendHeader and
 // grpc.SetTrailer docs).
 func SetCacheControl(ctx context.Context, cc CacheControl) error {
-	return grpc.SetTrailer(ctx, metadata.MD{"cache-expires": fmt.Sprint(cc.Expires.UnixNano())})
+	return grpc.SetTrailer(ctx, metadata.MD{"cache-control:max-age": cc.MaxAge.String()})
 }
 
 func getCacheControl(md metadata.MD) (*CacheControl, error) {
-	if expiresStr, present := md["cache-expires"]; present {
-		nano, err := strconv.ParseInt(expiresStr, 10, 64)
+	var cc *CacheControl
+	if maxAgeStr, present := md["cache-control:max-age"]; present {
+		maxAge, err := time.ParseDuration(maxAgeStr)
 		if err != nil {
 			return nil, err
 		}
-		expires := time.Unix(0, nano)
-		return &CacheControl{Expires: expires}, nil
+		if cc == nil {
+			cc = new(CacheControl)
+		}
+		cc.MaxAge = maxAge
 	}
-	return nil, nil
+	return cc, nil
 }
 
 // type contextKey int

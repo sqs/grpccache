@@ -13,7 +13,8 @@ import (
 
 type cacheEntry struct {
 	protoBytes []byte
-	CacheControl
+	cc         CacheControl
+	expiry     time.Time
 }
 
 // A Cache holds and allows retrieval of gRPC method call results that
@@ -53,8 +54,10 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 	}
 
 	if entry, present := c.results[cacheKey]; present {
-		if time.Now().After(entry.CacheControl.Expires) {
-			log.Printf("Cache: EXPIRED %q %+v", method, arg)
+		if time.Now().After(entry.expiry) {
+			if c.Log {
+				log.Printf("Cache: EXPIRED %q %+v", method, arg)
+			}
 			// TODO(sqs): clear cache entry (must obtain write lock,
 			// etc.)
 			return false, nil
@@ -101,6 +104,14 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		return err
 	}
 
-	c.results[cacheKey] = cacheEntry{protoBytes: data, CacheControl: *cc}
+	if !cc.cacheable() {
+		return nil
+	}
+
+	c.results[cacheKey] = cacheEntry{
+		protoBytes: data,
+		cc:         *cc,
+		expiry:     time.Now().Add(cc.MaxAge),
+	}
 	return nil
 }

@@ -104,8 +104,7 @@ func (s *testServer) TestMethod(ctx context.Context, op *testpb.TestOp) (*testpb
 	s.calls = append(s.calls, op)
 
 	// Set cache control.
-	expires := time.Now().Add(s.maxAge)
-	if err := grpccache.SetCacheControl(ctx, grpccache.CacheControl{Expires: expires}); err != nil {
+	if err := grpccache.SetCacheControl(ctx, grpccache.CacheControl{MaxAge: s.maxAge}); err != nil {
 		return nil, err
 	}
 
