@@ -213,7 +213,7 @@ func write(genTypes []genType, outPkg string) ([]byte, error) {
 
 				key := genType.name() + "." + methField.Names[0].Name
 				body := astParse(`
-var cachedResult TestResult
+var cachedResult ` + resultType(meth) + `
 cached, err := s.Cache.Get(ctx, "` + key + `", in, &cachedResult)
 if err != nil {
 	return nil, err
@@ -307,6 +307,10 @@ func fieldListToIdentList(fl *ast.FieldList) []ast.Expr {
 		}
 	}
 	return fs
+}
+
+func resultType(ft *ast.FuncType) string {
+	return astString(ft.Results.List[0].Type.(*ast.StarExpr).X)
 }
 
 func hasEllipsis(fl *ast.FieldList) bool {
