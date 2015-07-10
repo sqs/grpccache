@@ -23,6 +23,12 @@ type Cache struct {
 	mu      sync.Mutex
 	results map[string]cacheEntry // method "-" sha256 of arg proto -> cache entry
 
+	// MaxSize is the maximum size, in bytes, that this cache will
+	// store. An item is not stored if storing it would cause the
+	// cache size to exceed MaxSize.
+	MaxSize uint64
+	size    uint64 // current size
+
 	Log bool
 }
 
@@ -55,11 +61,13 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 
 	if entry, present := c.results[cacheKey]; present {
 		if time.Now().After(entry.expiry) {
-			if c.Log {
-				log.Printf("Cache: EXPIRED %q %+v", method, arg)
-			}
 			// Clear cache entry.
 			delete(c.results, cacheKey)
+			c.size -= uint64(len(entry.protoBytes))
+
+			if c.Log {
+				log.Printf("Cache: EXPIRED %q %+v (size %d)", method, arg, c.size)
+			}
 			return false, nil
 		}
 		if err := proto.Unmarshal(entry.protoBytes, result); err != nil {
@@ -86,9 +94,6 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		c.results = map[string]cacheEntry{}
 	}
 
-	if c.Log {
-		log.Printf("Cache: STORE   %q %+v: result %+v", method, arg, result)
-	}
 	data, err := proto.Marshal(result)
 	if err != nil {
 		return err
@@ -108,10 +113,37 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		return nil
 	}
 
+	afterSize := c.size
+	if prev, ok := c.results[cacheKey]; ok {
+		afterSize -= uint64(len(prev.protoBytes))
+	}
+	afterSize += uint64(len(data))
+	if c.MaxSize != 0 && afterSize > c.MaxSize {
+		if _, ok := c.results[cacheKey]; ok {
+			// Delete it because it's probably stale anyway.
+			delete(c.results, cacheKey)
+			c.size -= uint64(len(c.results[cacheKey].protoBytes))
+		}
+		return nil
+	}
+
 	c.results[cacheKey] = cacheEntry{
 		protoBytes: data,
 		cc:         *cc,
 		expiry:     time.Now().Add(cc.MaxAge),
 	}
+	c.size = afterSize
+
+	if c.Log {
+		log.Printf("Cache: STORE   %q %+v: result %+v (size %d)", method, arg, result, c.size)
+	}
 	return nil
+}
+
+// Clear removes all items from the cache.
+func (c *Cache) Clear() {
+	c.mu.Lock()
+	c.results = map[string]cacheEntry{}
+	c.size = 0
+	c.mu.Unlock()
 }

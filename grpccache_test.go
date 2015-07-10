@@ -92,6 +92,20 @@ func TestGRPCCache(t *testing.T) {
 	testNotCached(&testpb.TestOp{A: 111})
 	testCached(&testpb.TestOp{A: 100})
 	testCached(&testpb.TestOp{A: 100})
+
+	c.Cache.Clear()
+
+	// Test cache max size
+	c.Cache.MaxSize = 8
+	testNotCached(&testpb.TestOp{A: 200})
+	testCached(&testpb.TestOp{A: 200})
+	testNotCached(&testpb.TestOp{A: 201})
+	testCached(&testpb.TestOp{A: 201})
+	testNotCached(&testpb.TestOp{A: 202}) // exceeds max size
+	testNotCached(&testpb.TestOp{A: 202})
+	c.Cache.MaxSize = 0
+	testNotCached(&testpb.TestOp{A: 202})
+	testCached(&testpb.TestOp{A: 202})
 }
 
 type testServer struct {
