@@ -120,7 +120,7 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		return err
 	}
 
-	if !cc.cacheable() {
+	if cc == nil || !cc.cacheable() {
 		return nil
 	}
 
