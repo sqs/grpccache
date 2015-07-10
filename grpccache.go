@@ -29,16 +29,27 @@ type Cache struct {
 	MaxSize uint64
 	size    uint64 // current size
 
+	// KeyPart, if non-nil, returns a string that is appended to the
+	// key. It can be used to ensure that items from separate users,
+	// for example, are not comingled.
+	KeyPart func(ctx context.Context) string
+
 	Log bool
 }
 
-func cacheKey(ctx context.Context, method string, arg proto.Message) (string, error) {
+func (c *Cache) cacheKey(ctx context.Context, method string, arg proto.Message) (string, error) {
 	data, err := proto.Marshal(arg)
 	if err != nil {
 		return "", err
 	}
 	sha := sha256.Sum256(data)
-	return method + "-" + string(sha[:]), nil
+	s := method + "-" + string(sha[:])
+
+	if c.KeyPart != nil {
+		s += "-" + c.KeyPart(ctx)
+	}
+
+	return s, nil
 }
 
 // Get retrieves a cached result for a gRPC method call (on the
@@ -54,7 +65,7 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cacheKey, err := cacheKey(ctx, method, arg)
+	cacheKey, err := c.cacheKey(ctx, method, arg)
 	if err != nil {
 		return false, err
 	}
@@ -99,7 +110,7 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		return err
 	}
 
-	cacheKey, err := cacheKey(ctx, method, arg)
+	cacheKey, err := c.cacheKey(ctx, method, arg)
 	if err != nil {
 		return err
 	}

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"strconv"
+
 	"sourcegraph.com/sqs/grpccache"
 	"sourcegraph.com/sqs/grpccache/testpb"
 
@@ -106,6 +108,15 @@ func TestGRPCCache(t *testing.T) {
 	c.Cache.MaxSize = 0
 	testNotCached(&testpb.TestOp{A: 202})
 	testCached(&testpb.TestOp{A: 202})
+
+	// Test KeyPart
+	kp := 0
+	c.Cache.KeyPart = func(context.Context) string {
+		kp++
+		return strconv.Itoa(kp)
+	}
+	testNotCached(&testpb.TestOp{A: 200})
+	testNotCached(&testpb.TestOp{A: 200})
 }
 
 type testServer struct {
