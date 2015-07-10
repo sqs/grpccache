@@ -20,7 +20,7 @@ type cacheEntry struct {
 // A Cache holds and allows retrieval of gRPC method call results that
 // a client has previously seen.
 type Cache struct {
-	mu      sync.RWMutex
+	mu      sync.Mutex
 	results map[string]cacheEntry // method "-" sha256 of arg proto -> cache entry
 
 	Log bool
@@ -45,8 +45,8 @@ func cacheKey(ctx context.Context, method string, arg proto.Message) (string, er
 // there's no cached result (or it has expired), then (false, nil) is
 // returned. Otherwise a non-nil error is returned.
 func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, result proto.Message) (cached bool, err error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	cacheKey, err := cacheKey(ctx, method, arg)
 	if err != nil {
@@ -58,8 +58,8 @@ func (c *Cache) Get(ctx context.Context, method string, arg proto.Message, resul
 			if c.Log {
 				log.Printf("Cache: EXPIRED %q %+v", method, arg)
 			}
-			// TODO(sqs): clear cache entry (must obtain write lock,
-			// etc.)
+			// Clear cache entry.
+			delete(c.results, cacheKey)
 			return false, nil
 		}
 		if err := proto.Unmarshal(entry.protoBytes, result); err != nil {
