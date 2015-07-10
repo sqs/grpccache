@@ -46,23 +46,3 @@ func getCacheControl(md metadata.MD) (*CacheControl, error) {
 	}
 	return cc, nil
 }
-
-// type contextKey int
-
-// const cacheControlKey contextKey = iota
-
-// // CacheControlFromContext returns the CacheControl previously set by
-// // withCacheControl. gRPC server method implementations can use it to
-// // retrieve the CacheControl set by their CachedXyzServer wrapper. If
-// // no CacheControl exists in the context, it panics.
-// func CacheControlFromContext(ctx context.Context) *CacheControl {
-// 	cc := ctx.Value(cacheControlKey)
-// 	if cc == nil {
-// 		panic("no CacheControl set in context")
-// 	}
-// 	return cc.(*CacheControl)
-// }
-
-// func withCacheControl(ctx context.Context, cc *CacheControl) context.Context {
-// 	return context.WithValue(ctx, cacheControlKey, cc)
-// }
