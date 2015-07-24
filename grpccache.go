@@ -1,4 +1,4 @@
-package grpccache
+package grpccache // import "sourcegraph.com/sqs/grpccache"
 
 import (
 	"bytes"
