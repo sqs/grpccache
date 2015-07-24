@@ -26,7 +26,7 @@ func TestGRPCCache(t *testing.T) {
 	testpb.RegisterTestServer(gs, &ts)
 	go func() {
 		if err := gs.Serve(l); err != nil {
-			t.Fatal(err)
+			t.Log("warning: Serve:", err)
 		}
 	}()
 	defer gs.Stop()
