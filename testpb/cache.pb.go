@@ -24,7 +24,9 @@ func (s *CachedTestServer) TestMethod(ctx context.Context, in *TestOp) (*TestRes
 	ctx, cc := grpccache.Internal_WithCacheControl(ctx)
 	result, err := s.TestServer.TestMethod(ctx, in)
 	if !cc.IsZero() {
-		grpccache.Internal_SetCacheControlTrailer(ctx, *cc)
+		if err := grpccache.Internal_SetCacheControlTrailer(ctx, *cc); err != nil {
+			return nil, err
+		}
 	}
 	return result, err
 }

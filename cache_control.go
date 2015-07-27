@@ -33,9 +33,16 @@ func (cc *CacheControl) IsZero() bool {
 // request is written a gRPC header and/or trailer to communicate the
 // cache control info to the client. It may be called multiple times;
 // only the last value is used.
+//
+// If ctx was not previously wrapped with Internal_WithCacheControl,
+// then nothing will happen and the cache control info will not be
+// returned. Ensure that the CachedXyzServer wrapper methods are being
+// used.
 func SetCacheControl(ctx context.Context, cc CacheControl) {
 	existingCC := cacheControlFromContext(ctx)
-	*existingCC = cc
+	if existingCC != nil {
+		*existingCC = cc
+	}
 }
 
 // Internal_WithCacheControl is an internal func called by the
@@ -53,11 +60,9 @@ func Internal_SetCacheControlTrailer(ctx context.Context, cc CacheControl) error
 	return grpc.SetTrailer(ctx, metadata.MD{"cache-control:max-age": cc.MaxAge.String()})
 }
 
+// TODO(sqs): warn if nil?
 func cacheControlFromContext(ctx context.Context) *CacheControl {
-	cc, ok := ctx.Value(cacheControlKey).(*CacheControl)
-	if !ok || cc == nil {
-		panic("no CacheControl in context (must wrap server impl in CachedXyzServer, which calls WithCacheControl)")
-	}
+	cc, _ := ctx.Value(cacheControlKey).(*CacheControl)
 	return cc
 }
 
