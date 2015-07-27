@@ -18,6 +18,17 @@ import (
 	"sourcegraph.com/sqs/grpccache"
 )
 
+type CachedTestServer struct{ TestServer }
+
+func (s *CachedTestServer) TestMethod(ctx context.Context, in *TestOp) (*TestResult, error) {
+	ctx, cc := grpccache.Internal_WithCacheControl(ctx)
+	result, err := s.TestServer.TestMethod(ctx, in)
+	if !cc.IsZero() {
+		grpccache.Internal_SetCacheControlTrailer(ctx, *cc)
+	}
+	return result, err
+}
+
 type CachedTestClient struct {
 	TestClient
 	Cache *grpccache.Cache

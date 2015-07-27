@@ -128,7 +128,7 @@ func (c *Cache) Store(ctx context.Context, method string, arg proto.Message, res
 		return err
 	}
 
-	cc, err := getCacheControl(trailer)
+	cc, err := cacheControlFromMetadata(trailer)
 	if err != nil {
 		return err
 	}
@@ -197,7 +197,10 @@ func getNoCache(ctx context.Context) bool {
 
 type contextKey int
 
-const noCacheKey contextKey = iota
+const (
+	noCacheKey contextKey = iota
+	cacheControlKey
+)
 
 var codec gzipProtoCodec
 

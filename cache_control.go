@@ -21,18 +21,49 @@ func (cc *CacheControl) cacheable() bool {
 	return cc.MaxAge > 0
 }
 
+// IsZero returns true if cc refers to an empty CacheControl struct.
+func (cc *CacheControl) IsZero() bool {
+	return *cc == CacheControl{}
+}
+
 // SetCacheControl is called by gRPC server method implementations to
-// tell the client how to cache the result. It writes a gRPC header
-// and/or trailer to communicate the cache control info to the client.
+// tell the client how to cache the result.
 //
-// It may be called at most once per unary RPC handler (which is a
-// constraint imposed by gRPC; see the grpc.SendHeader and
-// grpc.SetTrailer docs).
-func SetCacheControl(ctx context.Context, cc CacheControl) error {
+// The last CacheControl set on ctx in the course of handling a
+// request is written a gRPC header and/or trailer to communicate the
+// cache control info to the client. It may be called multiple times;
+// only the last value is used.
+func SetCacheControl(ctx context.Context, cc CacheControl) {
+	existingCC := cacheControlFromContext(ctx)
+	*existingCC = cc
+}
+
+// Internal_WithCacheControl is an internal func called by the
+// code-genned CachedXyzServer wrapper methods. It should not be
+// called by user code.
+func Internal_WithCacheControl(ctx context.Context) (context.Context, *CacheControl) {
+	cc := &CacheControl{}
+	return context.WithValue(ctx, cacheControlKey, cc), cc
+}
+
+// Internal_SetCacheControlTrailer is an internal func called by the
+// code-genned CachedXyzServer wrapper methods. It should not be
+// called by user code.
+func Internal_SetCacheControlTrailer(ctx context.Context, cc CacheControl) error {
 	return grpc.SetTrailer(ctx, metadata.MD{"cache-control:max-age": cc.MaxAge.String()})
 }
 
-func getCacheControl(md metadata.MD) (*CacheControl, error) {
+func cacheControlFromContext(ctx context.Context) *CacheControl {
+	cc, ok := ctx.Value(cacheControlKey).(*CacheControl)
+	if !ok || cc == nil {
+		panic("no CacheControl in context (must wrap server impl in CachedXyzServer, which calls WithCacheControl)")
+	}
+	return cc
+}
+
+// cacheControlFromContext is called on the client to retrieve the
+// server's CacheControl response metadata.
+func cacheControlFromMetadata(md metadata.MD) (*CacheControl, error) {
 	var cc *CacheControl
 	if maxAgeStr, present := md["cache-control:max-age"]; present {
 		maxAge, err := time.ParseDuration(maxAgeStr)

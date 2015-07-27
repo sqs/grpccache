@@ -23,7 +23,7 @@ func TestGRPCCache(t *testing.T) {
 
 	var ts testServer
 	gs := grpc.NewServer()
-	testpb.RegisterTestServer(gs, &ts)
+	testpb.RegisterTestServer(gs, &testpb.CachedTestServer{TestServer: &ts})
 	go func() {
 		if err := gs.Serve(l); err != nil {
 			t.Log("warning: Serve:", err)
@@ -152,10 +152,19 @@ type testServer struct {
 func (s *testServer) TestMethod(ctx context.Context, op *testpb.TestOp) (*testpb.TestResult, error) {
 	s.calls = append(s.calls, op)
 
-	// Set cache control.
-	if err := grpccache.SetCacheControl(ctx, grpccache.CacheControl{MaxAge: s.maxAge}); err != nil {
-		return nil, err
+	{
+		// Only the last call to SetCacheControl should take effect. Make
+		// a call here that will be overridden by the following call, to
+		// ensure that that indeed is the case.
+		otherMaxAge := time.Duration(0)
+		if s.maxAge == 0 {
+			otherMaxAge = 5 * time.Second
+		}
+		grpccache.SetCacheControl(ctx, grpccache.CacheControl{MaxAge: otherMaxAge})
 	}
+
+	// Set cache control.
+	grpccache.SetCacheControl(ctx, grpccache.CacheControl{MaxAge: s.maxAge})
 
 	return &testpb.TestResult{X: op.A}, nil
 }

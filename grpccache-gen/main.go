@@ -135,11 +135,23 @@ func (x genType) typeName() string {
 }
 
 func (x genType) name() string {
-	return strings.TrimSuffix(x.Name.Name, "Client")
+	return strings.TrimSuffix(strings.TrimSuffix(x.Name.Name, "Client"), "Server")
 }
 
-func (x genType) implName() string {
+func (x genType) clientName() string {
+	return x.name() + "Client"
+}
+
+func (x genType) serverName() string {
+	return x.name() + "Server"
+}
+
+func (x genType) clientImplName() string {
 	return "Cached" + x.Name.Name
+}
+
+func (x genType) serverImplName() string {
+	return "Cached" + x.serverName()
 }
 
 type genTypeList []genType
@@ -199,20 +211,74 @@ func write(genTypes []genType, outPkg string) ([]byte, error) {
 
 	// Cached types
 	for _, genType := range genTypes {
-		fmt.Fprintf(&w, "type %s struct { %s; Cache *grpccache.Cache }\n", genType.implName(), genType.Name.Name)
-		fmt.Fprintln(&w)
 
-		// Methods
-		for _, methField := range genType.Type.(*ast.InterfaceType).Methods.List {
-			if meth, ok := methField.Type.(*ast.FuncType); ok {
-				synthesizeFieldNamesIfMissing(meth.Params)
-				if genType.pkgName != outPkg {
-					// TODO(sqs): check for import paths or dirs unequal, not pkg name
-					qualifyPkgRefs(meth, genType.pkgName)
+		{
+			// Server
+			fmt.Fprintf(&w, "type %s struct { %s }\n", genType.serverImplName(), genType.serverName())
+			fmt.Fprintln(&w)
+
+			// Methods
+			for _, methField := range genType.Type.(*ast.InterfaceType).Methods.List {
+				if meth, ok := methField.Type.(*ast.FuncType); ok {
+					synthesizeFieldNamesIfMissing(meth.Params)
+					if genType.pkgName != outPkg {
+						// TODO(sqs): check for import paths or dirs unequal, not pkg name
+						qualifyPkgRefs(meth, genType.pkgName)
+					}
+
+					// remove client-only "opts
+					// ... grpc.CallOption". Copy it to avoid
+					// conflicting with the client codegen below.
+					tmp := *meth
+					meth = &tmp
+					tmp2 := *meth.Params
+					meth.Params = &tmp2
+					meth.Params.List = meth.Params.List[:2]
+
+					body := astParse(`
+ctx, cc := grpccache.Internal_WithCacheControl(ctx)
+result, err := s.` + genType.serverName() + `.` + methField.Names[0].Name + `(ctx, in)
+if !cc.IsZero() {
+	if err := grpccache.Internal_SetCacheControlTrailer(ctx, *cc); err != nil {
+		return nil, err
+	}
+}
+return result, err
+`)
+
+					decl := &ast.FuncDecl{
+						Recv: &ast.FieldList{List: []*ast.Field{
+							{
+								Names: []*ast.Ident{ast.NewIdent("s")},
+								Type:  &ast.StarExpr{X: ast.NewIdent(genType.serverImplName())},
+							},
+						}},
+						Name: ast.NewIdent(methField.Names[0].Name),
+						Type: meth,
+						Body: &ast.BlockStmt{List: body},
+					}
+					fmt.Fprintln(&w, astString(decl))
+					fmt.Fprintln(&w)
 				}
+			}
+		}
 
-				key := genType.name() + "." + methField.Names[0].Name
-				body := astParse(`
+		{
+			// Client
+			fmt.Fprintf(&w, "type %s struct { %s; Cache *grpccache.Cache }\n", genType.clientImplName(), genType.Name.Name)
+			fmt.Fprintln(&w)
+
+			// Methods
+			for _, methField := range genType.Type.(*ast.InterfaceType).Methods.List {
+				if meth, ok := methField.Type.(*ast.FuncType); ok {
+					synthesizeFieldNamesIfMissing(meth.Params)
+					if genType.pkgName != outPkg {
+						// TODO(sqs): check for import paths or dirs unequal, not pkg name
+						qualifyPkgRefs(meth, genType.pkgName)
+					}
+
+					key := genType.name() + "." + methField.Names[0].Name
+					body := astParse(`
 if s.Cache != nil {
 	var cachedResult ` + resultType(meth) + `
 	cached, err := s.Cache.Get(ctx, "` + key + `", in, &cachedResult)
@@ -238,19 +304,20 @@ if s.Cache != nil {
 return result, nil
 `)
 
-				decl := &ast.FuncDecl{
-					Recv: &ast.FieldList{List: []*ast.Field{
-						{
-							Names: []*ast.Ident{ast.NewIdent("s")},
-							Type:  &ast.StarExpr{X: ast.NewIdent(genType.implName())},
-						},
-					}},
-					Name: ast.NewIdent(methField.Names[0].Name),
-					Type: meth,
-					Body: &ast.BlockStmt{List: body},
+					decl := &ast.FuncDecl{
+						Recv: &ast.FieldList{List: []*ast.Field{
+							{
+								Names: []*ast.Ident{ast.NewIdent("s")},
+								Type:  &ast.StarExpr{X: ast.NewIdent(genType.clientImplName())},
+							},
+						}},
+						Name: ast.NewIdent(methField.Names[0].Name),
+						Type: meth,
+						Body: &ast.BlockStmt{List: body},
+					}
+					fmt.Fprintln(&w, astString(decl))
+					fmt.Fprintln(&w)
 				}
-				fmt.Fprintln(&w, astString(decl))
-				fmt.Fprintln(&w)
 			}
 		}
 	}
